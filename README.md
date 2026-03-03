@@ -2,7 +2,14 @@
 
 **GM/T 0018-2023 密码设备应用接口纯软件模拟库**
 
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-brightgreen)](https://kintaiw.github.io/0018-sdk-mock/)
+
 无需真实密码硬件，即可在开发和测试环境中调用标准 SDF 接口。输出标准动态库（Linux `.so` / Windows `.dll`），与 C、Rust 等语言无缝集成。
+
+> **⚠️ 警告**：本项目**仅供学习和开发测试使用**。配置文件中的示例密钥为公开测试值，**严禁用于生产环境**。
+
+**文档站点**：https://kintaiw.github.io/0018-sdk-mock/
 
 ---
 
@@ -175,4 +182,6 @@ RUST_LOG=debug cargo test -- --nocapture  # 显示日志
 
 ## 许可
 
-本项目仅供学习和开发测试使用，示例密钥请勿用于生产环境。
+本项目基于 [Apache License 2.0](LICENSE) 开源。
+
+> **⚠️ 警告**：本项目**仅供学习和开发测试使用**。配置文件中的示例密钥为公开测试值，**严禁用于生产环境**。如需在生产环境使用密码设备接口，请使用经过认证的硬件密码设备及其原厂 SDK。
