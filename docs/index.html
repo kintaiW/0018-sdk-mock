@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SDF Mock SDK — GM/T 0018-2023 纯软件模拟库</title>
+  <link rel="stylesheet" href="assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔐</text></svg>">
+</head>
+<body>
+
+<!-- 导航栏 -->
+<nav class="navbar">
+  <div class="nav-inner">
+    <a class="nav-brand" href="index.html">🔐 SDF Mock SDK</a>
+    <ul class="nav-links">
+      <li><a href="index.html" class="active">首页</a></li>
+      <li><a href="guide.html">快速开始</a></li>
+      <li><a href="api.html">接口文档</a></li>
+      <li><a href="config.html">配置说明</a></li>
+      <li><a href="https://github.com/kintaiW/gm-sdk-rs" target="_blank">gm-sdk-rs ↗</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- 英雄区 -->
+<header class="hero">
+  <div class="hero-inner">
+    <div class="badge">GM/T 0018-2023</div>
+    <h1>SDF Mock SDK</h1>
+    <p class="hero-sub">无需密码硬件，在任意开发环境中调用标准 SDF 接口<br>纯 Rust 实现 · 标准 C ABI · 国密算法全覆盖</p>
+    <div class="hero-btns">
+      <a href="guide.html" class="btn btn-primary">快速开始</a>
+      <a href="api.html" class="btn btn-outline">查看接口</a>
+    </div>
+    <div class="hero-badges">
+      <span class="tag">SM2</span>
+      <span class="tag">SM3</span>
+      <span class="tag">SM4</span>
+      <span class="tag">Rust</span>
+      <span class="tag">cdylib</span>
+    </div>
+  </div>
+</header>
+
+<!-- 特性卡片 -->
+<section class="section">
+  <div class="container">
+    <h2 class="section-title">核心特性</h2>
+    <div class="cards">
+
+      <div class="card">
+        <div class="card-icon">📋</div>
+        <h3>完整 SDF 接口</h3>
+        <p>覆盖 GM/T 0018-2023 标准的设备管理、密钥管理、非对称运算、对称运算、哈希运算，共 20+ 个导出函数。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🔑</div>
+        <h3>国密算法全覆盖</h3>
+        <p>SM2（签名/加密）、SM3（哈希/HMAC）、SM4（ECB/CBC/CFB/OFB/CTR/GCM/CCM），基于 gm-sdk-rs 纯软件实现。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🔌</div>
+        <h3>标准 C ABI</h3>
+        <p>输出 <code>.so</code>/<code>.dll</code> 动态库，附带完整 <code>sdf.h</code> 头文件，与任意 C/C++ 项目一行代码集成。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">⚙️</div>
+        <h3>预置密钥配置</h3>
+        <p>通过 <code>mock_keys.toml</code> 预置 KEK、SM2 签名/加密密钥对，模拟真实硬件设备的密钥区行为。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🚀</div>
+        <h3>零硬件依赖</h3>
+        <p>无需 USB Key、PCI 密码卡等硬件设备，在 CI/CD 流水线、容器环境中开箱即用。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🧪</div>
+        <h3>37 个自动化测试</h3>
+        <p>完整的单元测试 + 集成测试，覆盖正常流程与错误路径，保障接口行为符合标准。</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- 调用流程 -->
+<section class="section section-gray">
+  <div class="container">
+    <h2 class="section-title">标准调用流程</h2>
+    <p class="section-sub">严格遵循 GM/T 0018 规定的设备生命周期，每步均有错误码保护</p>
+    <div class="flow">
+      <div class="flow-step">
+        <div class="flow-num">1</div>
+        <div class="flow-label">SDF_OpenDevice</div>
+        <div class="flow-desc">加载 config.toml<br>初始化设备上下文</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="flow-num">2</div>
+        <div class="flow-label">SDF_OpenSession</div>
+        <div class="flow-desc">创建会话<br>加载预置密钥</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="flow-num">3</div>
+        <div class="flow-label">Generate/ImportKey</div>
+        <div class="flow-desc">生成或导入<br>会话密钥</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="flow-num">4</div>
+        <div class="flow-label">密码运算</div>
+        <div class="flow-desc">加解密 / 签验签<br>哈希 / MAC</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="flow-num">5</div>
+        <div class="flow-label">DestroyKey → CloseSession → CloseDevice</div>
+        <div class="flow-desc">清理资源</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 代码示例 -->
+<section class="section">
+  <div class="container">
+    <h2 class="section-title">代码示例</h2>
+    <div class="code-tabs">
+      <div class="tab-bar">
+        <button class="tab-btn active" onclick="showTab('c')">C</button>
+        <button class="tab-btn" onclick="showTab('rust')">Rust</button>
+      </div>
+      <div id="tab-c" class="tab-content">
+<pre><code class="lang-c"><span class="kw">#include</span> <span class="str">"sdf.h"</span>
+
+<span class="kw">int</span> main() {
+    <span class="kw">void</span> *hDevice = NULL, *hSession = NULL;
+
+    <span class="cm">/* 1. 打开设备与会话 */</span>
+    SDF_OpenDevice(&amp;hDevice);
+    SDF_OpenSession(hDevice, &amp;hSession);
+
+    <span class="cm">/* 2. SM3 哈希 */</span>
+    SDF_HashInit(hSession, SGD_SM3, NULL, NULL, 0);
+    SDF_HashUpdate(hSession, (<span class="kw">const unsigned char</span>*)<span class="str">"hello"</span>, 5);
+    <span class="kw">unsigned char</span> hash[32]; <span class="kw">unsigned int</span> hlen;
+    SDF_HashFinal(hSession, hash, &amp;hlen);
+
+    <span class="cm">/* 3. SM2 临时密钥对签名 */</span>
+    ECCrefPublicKey pub; ECCrefPrivateKey pri;
+    SDF_GenerateKeyPair_ECC(hSession, SGD_SM2_1, 256, &amp;pub, &amp;pri);
+    ECCSignature sig;
+    SDF_ExternalSign_ECC(hSession, SGD_SM2_1, &amp;pri, hash, 32, &amp;sig);
+    SDF_ExternalVerify_ECC(hSession, SGD_SM2_1, &amp;pub, hash, 32, &amp;sig);
+
+    <span class="cm">/* 4. 清理 */</span>
+    SDF_CloseSession(hSession);
+    SDF_CloseDevice(hDevice);
+    <span class="kw">return</span> 0;
+}</code></pre>
+      </div>
+      <div id="tab-rust" class="tab-content" style="display:none">
+<pre><code class="lang-rust"><span class="kw">use</span> sdf_mock::sdf_impl::{device::*, asymmetric::*, hash::*};
+<span class="kw">use</span> sdf_mock::types::{alg_id, ECCrefPublicKey, ECCrefPrivateKey, ECCSignature};
+
+<span class="kw">fn</span> main() {
+    <span class="cm">// 1. 打开设备与会话</span>
+    assert_eq!(sdf_open_device(), <span class="num">0</span>);
+    <span class="kw">let mut</span> session = <span class="num">0u32</span>;
+    assert_eq!(sdf_open_session(&amp;<span class="kw">mut</span> session), <span class="num">0</span>);
+
+    <span class="cm">// 2. SM3 哈希</span>
+    sdf_hash_init(session, alg_id::SGD_SM3, None, <span class="str">b""</span>);
+    sdf_hash_update(session, <span class="str">b"hello"</span>);
+    <span class="kw">let mut</span> hash = [<span class="num">0u8</span>; <span class="num">32</span>];
+    sdf_hash_final(session, &amp;<span class="kw">mut</span> hash);
+
+    <span class="cm">// 3. SM2 签名</span>
+    <span class="kw">let mut</span> pub_key = ECCrefPublicKey::default();
+    <span class="kw">let mut</span> pri_key = ECCrefPrivateKey::default();
+    sdf_generate_key_pair_ecc(session, alg_id::SGD_SM2_1, 256,
+                               &amp;<span class="kw">mut</span> pub_key, &amp;<span class="kw">mut</span> pri_key);
+    <span class="kw">let mut</span> sig = ECCSignature::default();
+    sdf_external_sign_ecc(session, alg_id::SGD_SM2_1, &amp;pri_key, &amp;hash, &amp;<span class="kw">mut</span> sig);
+
+    <span class="cm">// 4. 清理</span>
+    sdf_close_session(session);
+    sdf_close_device();
+}</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 算法矩阵 -->
+<section class="section section-gray">
+  <div class="container">
+    <h2 class="section-title">算法支持矩阵</h2>
+    <table class="alg-table">
+      <thead>
+        <tr><th>算法</th><th>模式/用途</th><th>标识常量</th><th>状态</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>SM2</td><td>数字签名</td><td><code>SGD_SM2_1</code></td><td><span class="status ok">✓ 支持</span></td></tr>
+        <tr><td>SM2</td><td>公钥加密</td><td><code>SGD_SM2_3</code></td><td><span class="status ok">✓ 支持</span></td></tr>
+        <tr><td>SM3</td><td>哈希摘要</td><td><code>SGD_SM3</code></td><td><span class="status ok">✓ 支持</span></td></tr>
+        <tr><td>SM3</td><td>HMAC</td><td><code>SGD_SM3</code></td><td><span class="status ok">✓ 支持</span></td></tr>
+        <tr><td>SM4</td><td>ECB / CBC</td><td><code>SGD_SM4_ECB/CBC</code></td><td><span class="status ok">✓ 支持</span></td></tr>
+        <tr><td>SM4</td><td>CFB / OFB / CTR</td><td><code>SGD_SM4_CFB/OFB/CTR</code></td><td><span class="status ok">✓ 支持</span></td></tr>
+        <tr><td>SM4</td><td>GCM / CCM（AEAD）</td><td><code>SGD_SM4_GCM/CCM</code></td><td><span class="status ok">✓ 支持</span></td></tr>
+        <tr><td>SM4</td><td>CBC-MAC</td><td><code>SGD_SM4_MAC</code></td><td><span class="status ok">✓ 支持</span></td></tr>
+        <tr><td>SM9</td><td>签名 / 加密</td><td>—</td><td><span class="status wip">⚠ Stub</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="container">
+    <p>SDF Mock SDK · 基于 <a href="https://github.com/kintaiW/gm-sdk-rs">gm-sdk-rs</a> · GM/T 0018-2023</p>
+    <p class="footer-sub">仅供开发测试，示例密钥请勿用于生产环境</p>
+  </div>
+</footer>
+
+<script>
+function showTab(name) {
+  document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + name).style.display = 'block';
+  event.target.classList.add('active');
+}
+</script>
+</body>
+</html>

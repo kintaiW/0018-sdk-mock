@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>快速开始 — SDF Mock SDK</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-inner">
+    <a class="nav-brand" href="index.html">🔐 SDF Mock SDK</a>
+    <ul class="nav-links">
+      <li><a href="index.html">首页</a></li>
+      <li><a href="guide.html" class="active">快速开始</a></li>
+      <li><a href="api.html">接口文档</a></li>
+      <li><a href="config.html">配置说明</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="doc-layout">
+  <aside class="sidebar">
+    <ul>
+      <li><a href="#requirements">环境要求</a></li>
+      <li><a href="#build">编译</a></li>
+      <li><a href="#config">配置文件</a></li>
+      <li><a href="#c-integration">C 集成</a></li>
+      <li><a href="#rust-integration">Rust 集成</a></li>
+      <li><a href="#run-demo">运行示例</a></li>
+      <li><a href="#env-var">环境变量</a></li>
+    </ul>
+  </aside>
+
+  <main class="doc-main">
+    <h1>快速开始</h1>
+
+    <h2 id="requirements">环境要求</h2>
+    <ul>
+      <li>Rust 1.70+（<a href="https://rustup.rs">rustup.rs</a>）</li>
+      <li>GCC / Clang（编译 C 示例）</li>
+      <li>Linux x86_64 / Windows x64（WSL 同样支持）</li>
+    </ul>
+
+    <h2 id="build">编译动态库</h2>
+    <pre><code># 克隆项目
+git clone &lt;repo-url&gt;
+cd 0018-sdk-mock
+
+# Debug 版本（开发调试）
+cargo build
+
+# Release 版本（性能测试）
+cargo build --release</code></pre>
+
+    <p>输出文件：</p>
+    <table>
+      <tr><th>平台</th><th>路径</th></tr>
+      <tr><td>Linux</td><td><code>target/debug/libsdf_mock.so</code></td></tr>
+      <tr><td>Windows</td><td><code>target/debug/sdf_mock.dll</code></td></tr>
+    </table>
+
+    <h2 id="config">配置文件</h2>
+    <p>在<strong>可执行文件同目录</strong>（或当前工作目录）下放置：</p>
+
+    <h3>config.toml（必须存在）</h3>
+    <p><code>SDF_OpenDevice</code> 启动时检测此文件，不存在则返回 <code>SDR_CONFIGERR</code>。</p>
+    <pre><code>[log]
+level = "info"       # debug | info | warn | error | off
+directory = "./"     # 日志文件输出目录</code></pre>
+
+    <h3>mock_keys.toml（可选）</h3>
+    <p>预置设备密钥，缺失时以空密钥配置启动（KEK/内部SM2密钥不可用）。</p>
+    <pre><code>[device]
+manufacturer  = "MockDevice"
+device_name   = "SDF_MOCK_V1"
+device_serial = "MOCK20250101"
+
+[root_key]
+value = "0123456789ABCDEF0123456789ABCDEF"  # SM4 128位，32个十六进制字符
+
+[[kek_keys]]
+index = 1
+value = "FEDCBA9876543210FEDCBA9876543210"
+
+[[sign_keys]]
+index = 1
+private_key = "3945208F7B2144B13F36E38AC6D39F95..."  # 64个十六进制字符
+public_key  = "04BB34D0B28F49ABAFAD1AEE5E44B489..."  # 130个十六进制字符（04||x||y）
+
+[[enc_keys]]
+index = 1
+private_key = "56B96C94AF649D75F1738B4A2A0E563D..."
+public_key  = "04C0D5E3A2B1F49876543210FEDCBA98..."</code></pre>
+
+    <div class="callout callout-warn">
+      <strong>注意：</strong>所有密钥值均为无空格、无 <code>0x</code> 前缀的十六进制字符串。私钥 64 字符（32字节），公钥 130 字符（65字节，必须以 <code>04</code> 开头）。
+    </div>
+
+    <h2 id="c-integration">C 程序集成</h2>
+
+    <h3>步骤一：复制头文件</h3>
+    <pre><code>cp sdf.h /path/to/your/project/</code></pre>
+
+    <h3>步骤二：编写代码</h3>
+    <pre><code>#include "sdf.h"
+#include &lt;stdio.h&gt;
+
+int main() {
+    void *hDevice = NULL, *hSession = NULL;
+    int ret;
+
+    // 打开设备（需要 config.toml 存在）
+    ret = SDF_OpenDevice(&amp;hDevice);
+    if (ret != SDR_OK) {
+        fprintf(stderr, "SDF_OpenDevice 失败: 0x%08X\n", ret);
+        return 1;
+    }
+
+    // 创建会话
+    SDF_OpenSession(hDevice, &amp;hSession);
+
+    // SM3 哈希示例
+    unsigned char hash[32];
+    unsigned int  hash_len;
+    SDF_HashInit(hSession, SGD_SM3, NULL, NULL, 0);
+    SDF_HashUpdate(hSession, (const unsigned char*)"hello", 5);
+    SDF_HashFinal(hSession, hash, &amp;hash_len);
+
+    // 清理
+    SDF_CloseSession(hSession);
+    SDF_CloseDevice(hDevice);
+    return 0;
+}</code></pre>
+
+    <h3>步骤三：编译链接</h3>
+    <pre><code># Linux
+gcc -o myapp myapp.c \
+    -I/path/to/sdf-mock \
+    -L/path/to/sdf-mock/target/debug \
+    -lsdf_mock \
+    -Wl,-rpath,/path/to/sdf-mock/target/debug
+
+# 或使用绝对路径避免 rpath
+LD_LIBRARY_PATH=/path/to/target/debug ./myapp</code></pre>
+
+    <h2 id="rust-integration">Rust 项目集成</h2>
+    <p>在 <code>Cargo.toml</code> 中添加：</p>
+    <pre><code>[dependencies]
+sdf-mock = { path = "/path/to/0018-sdk-mock" }</code></pre>
+
+    <pre><code>use sdf_mock::sdf_impl::device::*;
+use sdf_mock::sdf_impl::hash::*;
+use sdf_mock::types::alg_id;
+
+fn main() {
+    assert_eq!(sdf_open_device(), 0);
+    let mut session = 0u32;
+    sdf_open_session(&amp;mut session);
+
+    sdf_hash_init(session, alg_id::SGD_SM3, None, b"");
+    sdf_hash_update(session, b"hello");
+    let mut hash = [0u8; 32];
+    sdf_hash_final(session, &amp;mut hash);
+    println!("SM3: {:02x?}", &amp;hash[..8]);
+
+    sdf_close_session(session);
+    sdf_close_device();
+}</code></pre>
+
+    <h2 id="run-demo">运行内置 C 示例</h2>
+    <pre><code>cd examples/c_caller
+
+# 编译（自动触发 cargo build）
+make
+
+# 运行（config.toml 和 mock_keys.toml 已在此目录）
+./demo</code></pre>
+
+    <p>预期输出（部分）：</p>
+    <pre><code>=== GM/T 0018 Mock SDK Demo ===
+
+--- 1. 设备初始化 ---
+[OK]   SDF_OpenDevice
+[OK]   SDF_OpenSession
+
+--- 4. SM3 哈希 ---
+[OK]   SDF_HashInit / HashUpdate / HashFinal
+  SM3(msg) [32 bytes]: AF49F1E2...
+
+--- 5. SM2 签名与验签 ---
+[OK]   SDF_ExternalSign_ECC
+[OK]   SDF_ExternalVerify_ECC
+
+--- 7. SM4-CBC 加密/解密 ---
+[OK]   SDF_Encrypt (SM4-CBC)
+[OK]   SDF_Decrypt (SM4-CBC)</code></pre>
+
+    <h2 id="env-var">环境变量</h2>
+    <table>
+      <tr><th>变量</th><th>说明</th><th>示例</th></tr>
+      <tr>
+        <td><code>SDF_MOCK_CONFIG_DIR</code></td>
+        <td>指定配置文件目录，优先于可执行文件目录和当前目录</td>
+        <td><code>export SDF_MOCK_CONFIG_DIR=/etc/sdf-mock</code></td>
+      </tr>
+      <tr>
+        <td><code>RUST_LOG</code></td>
+        <td>控制日志输出级别（仅影响 stderr 输出）</td>
+        <td><code>RUST_LOG=debug ./demo</code></td>
+      </tr>
+    </table>
+
+  </main>
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <p>SDF Mock SDK · GM/T 0018-2023</p>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>接口文档 — SDF Mock SDK</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="nav-inner">
+    <a class="nav-brand" href="index.html">🔐 SDF Mock SDK</a>
+    <ul class="nav-links">
+      <li><a href="index.html">首页</a></li>
+      <li><a href="guide.html">快速开始</a></li>
+      <li><a href="api.html" class="active">接口文档</a></li>
+      <li><a href="config.html">配置说明</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="doc-layout">
+  <aside class="sidebar">
+    <ul>
+      <li class="sidebar-group">设备管理</li>
+      <li><a href="#open-device">SDF_OpenDevice</a></li>
+      <li><a href="#close-device">SDF_CloseDevice</a></li>
+      <li><a href="#open-session">SDF_OpenSession</a></li>
+      <li><a href="#close-session">SDF_CloseSession</a></li>
+      <li><a href="#get-device-info">SDF_GetDeviceInfo</a></li>
+      <li class="sidebar-group">密钥管理</li>
+      <li><a href="#generate-random">SDF_GenerateRandom</a></li>
+      <li><a href="#generate-keypair">SDF_GenerateKeyPair_ECC</a></li>
+      <li><a href="#generate-key-kek">SDF_GenerateKeyWithKEK</a></li>
+      <li><a href="#import-key-kek">SDF_ImportKeyWithKEK</a></li>
+      <li><a href="#generate-key-ipk">SDF_GenerateKeyWithIPK_ECC</a></li>
+      <li><a href="#import-key-isk">SDF_ImportKeyWithISK_ECC</a></li>
+      <li><a href="#destroy-key">SDF_DestroyKey</a></li>
+      <li class="sidebar-group">非对称运算</li>
+      <li><a href="#ext-sign">SDF_ExternalSign_ECC</a></li>
+      <li><a href="#ext-verify">SDF_ExternalVerify_ECC</a></li>
+      <li><a href="#int-sign">SDF_InternalSign_ECC</a></li>
+      <li><a href="#int-verify">SDF_InternalVerify_ECC</a></li>
+      <li><a href="#ext-encrypt">SDF_ExternalEncrypt_ECC</a></li>
+      <li><a href="#ext-decrypt">SDF_ExternalDecrypt_ECC</a></li>
+      <li class="sidebar-group">对称运算</li>
+      <li><a href="#encrypt">SDF_Encrypt</a></li>
+      <li><a href="#decrypt">SDF_Decrypt</a></li>
+      <li><a href="#calculate-mac">SDF_CalculateMAC</a></li>
+      <li class="sidebar-group">哈希运算</li>
+      <li><a href="#hash-init">SDF_HashInit</a></li>
+      <li><a href="#hash-update">SDF_HashUpdate</a></li>
+      <li><a href="#hash-final">SDF_HashFinal</a></li>
+      <li><a href="#hmac-init">SDF_HMACInit</a></li>
+      <li><a href="#hmac-update">SDF_HMACUpdate</a></li>
+      <li><a href="#hmac-final">SDF_HMACFinal</a></li>
+      <li class="sidebar-group">错误码</li>
+      <li><a href="#error-codes">错误码列表</a></li>
+    </ul>
+  </aside>
+
+  <main class="doc-main">
+    <h1>接口文档</h1>
+    <p>所有函数返回 <code>int</code>，成功返回 <code>SDR_OK (0)</code>，失败返回对应错误码。句柄类型均为 <code>void*</code>。</p>
+
+    <!-- ===== 设备管理 ===== -->
+    <h2>设备管理</h2>
+
+    <div class="api-entry" id="open-device">
+      <div class="api-sig">int SDF_OpenDevice(void **phDeviceHandle)</div>
+      <p>打开密码设备，初始化 Mock 上下文。<strong>必须在所有其他操作之前调用。</strong></p>
+      <table>
+        <tr><th>参数</th><th>方向</th><th>说明</th></tr>
+        <tr><td><code>phDeviceHandle</code></td><td>输出</td><td>设备句柄（Mock 固定输出 <code>0x1</code>）</td></tr>
+      </table>
+      <div class="callout callout-info">此函数会在可执行文件目录/当前目录搜索 <code>config.toml</code>，不存在则返回 <code>SDR_CONFIGERR</code>。</div>
+    </div>
+
+    <div class="api-entry" id="close-device">
+      <div class="api-sig">int SDF_CloseDevice(void *hDeviceHandle)</div>
+      <p>关闭密码设备，释放全局设备上下文。</p>
+    </div>
+
+    <div class="api-entry" id="open-session">
+      <div class="api-sig">int SDF_OpenSession(void *hDeviceHandle, void **phSessionHandle)</div>
+      <p>在已打开的设备上创建一个新会话。每个会话拥有独立的密钥仓库和哈希上下文。</p>
+      <table>
+        <tr><th>参数</th><th>方向</th><th>说明</th></tr>
+        <tr><td><code>phSessionHandle</code></td><td>输出</td><td>会话句柄，后续所有操作的第一个参数</td></tr>
+      </table>
+    </div>
+
+    <div class="api-entry" id="close-session">
+      <div class="api-sig">int SDF_CloseSession(void *hSessionHandle)</div>
+      <p>关闭会话，销毁该会话的所有会话密钥。</p>
+    </div>
+
+    <div class="api-entry" id="get-device-info">
+      <div class="api-sig">int SDF_GetDeviceInfo(void *hSessionHandle, DEVICEINFO *pstDeviceInfo)</div>
+      <p>获取设备信息，填充 <code>DEVICEINFO</code> 结构体。</p>
+      <table>
+        <tr><th>字段</th><th>说明</th></tr>
+        <tr><td>IssuerName[40]</td><td>厂商名称（来自 mock_keys.toml <code>manufacturer</code>）</td></tr>
+        <tr><td>DeviceName[16]</td><td>设备名称</td></tr>
+        <tr><td>DeviceSerial[16]</td><td>序列号</td></tr>
+        <tr><td>DeviceVersion</td><td>固定 <code>0x00010000</code></td></tr>
+        <tr><td>StandardVersion</td><td>固定 <code>0x00020000</code>（GM/T 0018-2023）</td></tr>
+      </table>
+    </div>
+
+    <!-- ===== 密钥管理 ===== -->
+    <h2>密钥管理</h2>
+
+    <div class="api-entry" id="generate-random">
+      <div class="api-sig">int SDF_GenerateRandom(void *hSessionHandle, unsigned int uiLength, unsigned char *pucRandom)</div>
+      <p>生成密码学安全随机数（基于操作系统 OsRng）。</p>
+      <table>
+        <tr><th>参数</th><th>说明</th></tr>
+        <tr><td><code>uiLength</code></td><td>随机数字节数（1 ~ 4096）</td></tr>
+        <tr><td><code>pucRandom</code></td><td>输出缓冲区（调用者分配，大小 ≥ uiLength）</td></tr>
+      </table>
+    </div>
+
+    <div class="api-entry" id="generate-keypair">
+      <div class="api-sig">int SDF_GenerateKeyPair_ECC(void *hSessionHandle, unsigned int uiAlgID, unsigned int uiKeyBits, ECCrefPublicKey *pucPublicKey, ECCrefPrivateKey *pucPrivateKey)</div>
+      <p>生成临时 SM2 密钥对（存于会话内存，不持久化）。</p>
+      <table>
+        <tr><th>参数</th><th>说明</th></tr>
+        <tr><td><code>uiAlgID</code></td><td><code>SGD_SM2_1</code>（签名）或 <code>SGD_SM2_3</code>（加密）</td></tr>
+        <tr><td><code>uiKeyBits</code></td><td>256（SM2 固定）</td></tr>
+      </table>
+    </div>
+
+    <div class="api-entry" id="generate-key-kek">
+      <div class="api-sig">int SDF_GenerateKeyWithKEK(void *hSessionHandle, unsigned int uiLength, unsigned int uiAlgID, unsigned int uiKEKIndex, unsigned char *pucKey, unsigned int *puiKeyLength, void **phKeyHandle)</div>
+      <p>生成随机 SM4 会话密钥，并用指定 KEK（SM4-ECB）加密保护后��出密文。</p>
+      <div class="callout callout-warn">需要 <code>mock_keys.toml</code> 中配置对应索引的 KEK。</div>
+      <table>
+        <tr><th>参数</th><th>说明</th></tr>
+        <tr><td><code>uiLength</code></td><td>密钥长度（字节），当前仅支持 16（SM4 128位）</td></tr>
+        <tr><td><code>uiKEKIndex</code></td><td>KEK 索引（从 1 开始）</td></tr>
+        <tr><td><code>pucKey</code></td><td>输出：KEK 加密后的密文（16字节）</td></tr>
+        <tr><td><code>phKeyHandle</code></td><td>输出：会话密钥句柄</td></tr>
+      </table>
+    </div>
+
+    <div class="api-entry" id="import-key-kek">
+      <div class="api-sig">int SDF_ImportKeyWithKEK(void *hSessionHandle, unsigned int uiAlgID, unsigned int uiKEKIndex, const unsigned char *pucKey, unsigned int uiKeyLength, void **phKeyHandle)</div>
+      <p>用 KEK 解密导入会话密钥。与 <code>SDF_GenerateKeyWithKEK</code> 配对使用。</p>
+    </div>
+
+    <div class="api-entry" id="generate-key-ipk">
+      <div class="api-sig">int SDF_GenerateKeyWithIPK_ECC(void *hSessionHandle, unsigned int uiIPKIndex, unsigned int uiKeyBits, ECCCipher *pucKey, void **phKeyHandle)</div>
+      <p>生成随机 SM4 会话密钥，用内部 SM2 加密公钥（IPK）封装后输出密文结构。</p>
+    </div>
+
+    <div class="api-entry" id="import-key-isk">
+      <div class="api-sig">int SDF_ImportKeyWithISK_ECC(void *hSessionHandle, unsigned int uiISKIndex, const ECCCipher *pucKey, void **phKeyHandle)</div>
+      <p>用内部 SM2 加密私钥（ISK）解密导入会话密钥。需先调用 <code>SDF_GetPrivateKeyAccessRight</code> 授权。</p>
+    </div>
+
+    <div class="api-entry" id="destroy-key">
+      <div class="api-sig">int SDF_DestroyKey(void *hSessionHandle, void *hKeyHandle)</div>
+      <p>销毁会话密钥，从内存中安全清除。句柄销毁后不可再使用。</p>
+    </div>
+
+    <!-- ===== 非对称运算 ===== -->
+    <h2>非对称运算（SM2）</h2>
+
+    <div class="api-entry" id="ext-sign">
+      <div class="api-sig">int SDF_ExternalSign_ECC(void *hSessionHandle, unsigned int uiAlgID, const ECCrefPrivateKey *pucPrivateKey, const unsigned char *pucData, unsigned int uiDataLength, ECCSignature *pucSignature)</div>
+      <p>使用外部私钥对 <strong>32字节预哈希数据</strong>（e 值）进行 SM2 签名。</p>
+      <div class="callout callout-info">输入必须是已哈希的 32 字节数据，不是原始消息。通常先调用 <code>SDF_HashFinal</code> 得到哈希值再传入。</div>
+    </div>
+
+    <div class="api-entry" id="ext-verify">
+      <div class="api-sig">int SDF_ExternalVerify_ECC(void *hSessionHandle, unsigned int uiAlgID, const ECCrefPublicKey *pucPublicKey, const unsigned char *pucData, unsigned int uiDataLength, const ECCSignature *pucSignature)</div>
+      <p>使用外部公钥验证签名。输入同样须为 32 字节预哈希值。</p>
+    </div>
+
+    <div class="api-entry" id="int-sign">
+      <div class="api-sig">int SDF_InternalSign_ECC(void *hSessionHandle, unsigned int uiISKIndex, const unsigned char *pucData, unsigned int uiDataLength, ECCSignature *pucSignature)</div>
+      <p>使用预置签名私钥对<strong>原始消息</strong>签名（内部自动计算 Z 值和哈希）。需先调用 <code>SDF_GetPrivateKeyAccessRight</code>。</p>
+    </div>
+
+    <div class="api-entry" id="int-verify">
+      <div class="api-sig">int SDF_InternalVerify_ECC(void *hSessionHandle, unsigned int uiIPKIndex, const unsigned char *pucData, unsigned int uiDataLength, const ECCSignature *pucSignature)</div>
+      <p>使用预置签名公钥验签（内部自动计算 Z 值）。</p>
+    </div>
+
+    <div class="api-entry" id="ext-encrypt">
+      <div class="api-sig">int SDF_ExternalEncrypt_ECC(void *hSessionHandle, unsigned int uiAlgID, const ECCrefPublicKey *pucPublicKey, const unsigned char *pucData, unsigned int uiDataLength, ECCCipher *pucEncData)</div>
+      <p>SM2 公钥加密。明文最大 <strong>136 字节</strong>，输出 <code>ECCCipher</code> 结构。</p>
+    </div>
+
+    <div class="api-entry" id="ext-decrypt">
+      <div class="api-sig">int SDF_ExternalDecrypt_ECC(void *hSessionHandle, unsigned int uiAlgID, const ECCrefPrivateKey *pucPrivateKey, const ECCCipher *pucEncData, unsigned char *pucData, unsigned int *puiDataLength)</div>
+      <p>SM2 私钥解密。</p>
+    </div>
+
+    <!-- ===== 对称运算 ===== -->
+    <h2>对称运算（SM4）</h2>
+
+    <div class="api-entry" id="encrypt">
+      <div class="api-sig">int SDF_Encrypt(void *hSessionHandle, void *hKeyHandle, unsigned int uiAlgID, const unsigned char *pucIV, const unsigned char *pucData, unsigned int uiDataLength, unsigned char *pucEncData, unsigned int *puiEncDataLength)</div>
+      <p>SM4 加密。支持算法模式：</p>
+      <table>
+        <tr><th>模式</th><th>标识</th><th>IV</th><th>数据长度</th></tr>
+        <tr><td>ECB</td><td><code>SGD_SM4_ECB</code></td><td>忽略</td><td>必须是 16 的倍数</td></tr>
+        <tr><td>CBC</td><td><code>SGD_SM4_CBC</code></td><td>必填 16B</td><td>必须是 16 的倍数</td></tr>
+        <tr><td>CFB/OFB/CTR</td><td><code>SGD_SM4_CFB/OFB/CTR</code></td><td>必填 16B</td><td>任意长度</td></tr>
+      </table>
+    </div>
+
+    <div class="api-entry" id="decrypt">
+      <div class="api-sig">int SDF_Decrypt(void *hSessionHandle, void *hKeyHandle, unsigned int uiAlgID, const unsigned char *pucIV, const unsigned char *pucEncData, unsigned int uiEncDataLength, unsigned char *pucData, unsigned int *puiDataLength)</div>
+      <p>SM4 解密，参数与 <code>SDF_Encrypt</code> 对称。</p>
+    </div>
+
+    <div class="api-entry" id="calculate-mac">
+      <div class="api-sig">int SDF_CalculateMAC(void *hSessionHandle, void *hKeyHandle, unsigned int uiAlgID, const unsigned char *pucIV, const unsigned char *pucData, unsigned int uiDataLength, unsigned char *pucMAC, unsigned int *puiMACLength)</div>
+      <p>计算 SM4-CBC-MAC（取 CBC 最后一块密文，固定 16 字节）。数据长度必须是 16 的倍数。</p>
+    </div>
+
+    <!-- ===== 哈希运算 ===== -->
+    <h2>哈希运算（SM3）</h2>
+
+    <div class="api-entry" id="hash-init">
+      <div class="api-sig">int SDF_HashInit(void *hSessionHandle, unsigned int uiAlgID, const ECCrefPublicKey *pucPublicKey, const unsigned char *pucID, unsigned int uiIDLength)</div>
+      <p>初始化 SM3 哈希上下文。</p>
+      <table>
+        <tr><th>参数</th><th>说明</th></tr>
+        <tr><td><code>pucPublicKey</code></td><td>SM2 公钥（非 NULL 时自动计算 Z 值并预写入状态，用于 SM3withSM2 签名哈希）</td></tr>
+        <tr><td><code>pucID</code></td><td>用户 ID（NULL 时默认使用 <code>"1234567812345678"</code>）</td></tr>
+      </table>
+    </div>
+
+    <div class="api-entry" id="hash-update">
+      <div class="api-sig">int SDF_HashUpdate(void *hSessionHandle, const unsigned char *pucData, unsigned int uiDataLength)</div>
+      <p>向哈希上下文追加数据，可多次调用。</p>
+    </div>
+
+    <div class="api-entry" id="hash-final">
+      <div class="api-sig">int SDF_HashFinal(void *hSessionHandle, unsigned char *pucHash, unsigned int *puiHashLength)</div>
+      <p>完成哈希计算，输出 <strong>32 字节</strong> SM3 摘要。</p>
+    </div>
+
+    <div class="api-entry" id="hmac-init">
+      <div class="api-sig">int SDF_HMACInit(void *hSessionHandle, void *hKeyHandle, unsigned int uiAlgID)</div>
+      <p>初始化 HMAC-SM3 上下文，<code>hKeyHandle</code> 指向的对称会话密钥作为 HMAC 密钥。</p>
+    </div>
+
+    <div class="api-entry" id="hmac-update">
+      <div class="api-sig">int SDF_HMACUpdate(void *hSessionHandle, const unsigned char *pucData, unsigned int uiDataLength)</div>
+      <p>向 HMAC 上下文追加数据。</p>
+    </div>
+
+    <div class="api-entry" id="hmac-final">
+      <div class="api-sig">int SDF_HMACFinal(void *hSessionHandle, unsigned char *pucMAC, unsigned int *puiMACLength)</div>
+      <p>完成 HMAC-SM3 计算，输出 <strong>32 字节</strong> MAC 值。</p>
+    </div>
+
+    <!-- ===== 错误码 ===== -->
+    <h2 id="error-codes">错误码</h2>
+    <table>
+      <tr><th>常量</th><th>值</th><th>含义</th></tr>
+      <tr><td><code>SDR_OK</code></td><td>0x00000000</td><td>操作成功</td></tr>
+      <tr><td><code>SDR_UNKNOWERR</code></td><td>0x01000001</td><td>未知错误</td></tr>
+      <tr><td><code>SDR_OPENDEVICE</code></td><td>0x01000005</td><td>设备未打开</td></tr>
+      <tr><td><code>SDR_OPENSESSION</code></td><td>0x01000006</td><td>会话未打开</td></tr>
+      <tr><td><code>SDR_PARDENY</code></td><td>0x01000007</td><td>权限拒绝</td></tr>
+      <tr><td><code>SDR_KEYNOTEXIST</code></td><td>0x01000008</td><td>密钥不存在</td></tr>
+      <tr><td><code>SDR_ALGNOTSUPPORT</code></td><td>0x01000009</td><td>算法不支持</td></tr>
+      <tr><td><code>SDR_SIGNERR</code></td><td>0x0100000D</td><td>签名失败</td></tr>
+      <tr><td><code>SDR_VERIFYERR</code></td><td>0x0100000E</td><td>验签/认证失败</td></tr>
+      <tr><td><code>SDR_SYMOPERR</code></td><td>0x0100000F</td><td>对称运算失败</td></tr>
+      <tr><td><code>SDR_KEYINDEX</code></td><td>0x01000019</td><td>密钥索引越界</td></tr>
+      <tr><td><code>SDR_INVALIDHANDLE</code></td><td>0x0100001A</td><td>无效句柄</td></tr>
+      <tr><td><code>SDR_PARAMERR</code></td><td>0x01000100</td><td>参数错误（空指针/非法长度）</td></tr>
+      <tr><td><code>SDR_CONFIGERR</code></td><td>0x01000101</td><td>配置文件错误/不存在</td></tr>
+    </table>
+
+  </main>
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <p>SDF Mock SDK · GM/T 0018-2023</p>
+  </div>
+</footer>
+</body>
+</html>
