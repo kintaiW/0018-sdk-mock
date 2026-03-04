@@ -17,19 +17,45 @@ fn device_lock() -> &'static Mutex<Option<DeviceContext>> {
     DEVICE_CTX.get_or_init(|| Mutex::new(None))
 }
 
-/// 按优先级查找 config.toml：可执行文件目录 → 当前工作目录
-/// Reason: 动态库加载时 CWD 是调用方目录，不一定与配置文件同级
+/// 按优先级查找 config.toml（优先级从高到低）：
+///   1. 环境变量 OSR_HSM_CONFIG 指定的绝对路径
+///   2. 固定路径 /etc/osr/config.toml
+///   3. 当前工作目录（CWD）下的 config.toml
+///
+/// Reason: 动态库被 JNI 或其他宿主进程加载时，无法预知 .so 位置，
+/// 也不能依赖可执行文件目录；通过环境变量和固定路径提供稳定的配置入口。
+///
+/// 注意：若 OSR_HSM_CONFIG 已设置但文件不存在，直接返回 None 而不继续查找，
+/// 避免配置路径写错时静默降级到低优先级配置，导致行为难以排查。
 fn find_config_toml() -> Option<std::path::PathBuf> {
-    // 1. 可执行文件所在目录
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let p = dir.join("config.toml");
-            if p.exists() { return Some(p); }
+    // 1. 环境变量 OSR_HSM_CONFIG（最高优先级）
+    if let Ok(env_path) = std::env::var("OSR_HSM_CONFIG") {
+        let p = std::path::PathBuf::from(&env_path);
+        // Reason: 环境变量已明确指定路径，若文件不存在说明配置有误，
+        // 不应静默降级到低优先级，直接返回 None 让调用方报错
+        if p.exists() {
+            log::info!("find_config_toml: 使用环境变量 OSR_HSM_CONFIG={}", env_path);
+            return Some(p);
         }
+        log::warn!("find_config_toml: OSR_HSM_CONFIG={} 文件不存在，不继续查找", env_path);
+        return None;
     }
-    // 2. 当前工作目录
-    let p = Path::new("config.toml").to_path_buf();
-    if p.exists() { return Some(p); }
+
+    // 2. 系统固定路径 /etc/osr/config.toml
+    let system_path = Path::new("/etc/osr/config.toml");
+    if system_path.exists() {
+        log::info!("find_config_toml: 使用系统路径 {}", system_path.display());
+        return Some(system_path.to_path_buf());
+    }
+
+    // 3. 当前工作目录（CWD）
+    // Reason: CWD 是启动进程时 shell 的当前目录，适合本地开发调试场景
+    let cwd_path = Path::new("config.toml").to_path_buf();
+    if cwd_path.exists() {
+        log::info!("find_config_toml: 使用 CWD 下的 config.toml");
+        return Some(cwd_path);
+    }
+
     None
 }
 
@@ -40,7 +66,7 @@ pub fn sdf_open_device() -> i32 {
     let config_path = match find_config_toml() {
         Some(p) => p,
         None => {
-            eprintln!("SDF_OpenDevice 失败: config.toml 不存在（已搜索可执行文件目录和当前目录）");
+            eprintln!("SDF_OpenDevice 失败: 找不到 config.toml（查找顺序：OSR_HSM_CONFIG 环境变量 → /etc/osr/config.toml → CWD）");
             return SDR_CONFIGERR;
         }
     };

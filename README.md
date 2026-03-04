@@ -35,14 +35,33 @@ cargo build --release
 
 ### 2. 准备配置文件
 
-在可执行文件同目录下放置：
+**`config.toml`**（必须存在，`SDF_OpenDevice` 启动时自动查找）
 
-**`config.toml`**（必须存在）
 ```toml
 [log]
 level = "info"      # debug / info / warn / error / off
 directory = "./"
 ```
+
+`config.toml` 查找优先级（从高到低）：
+
+| 优先级 | 方式 | 说明 |
+|--------|------|------|
+| 1 | 环境变量 `OSR_HSM_CONFIG` | 指定配置文件绝对路径 |
+| 2 | `/etc/osr/config.toml` | 系统固定路径 |
+| 3 | 当前工作目录 `config.toml` | 启动进程时 shell 的 `pwd` |
+
+> 若 `OSR_HSM_CONFIG` 已设置但文件不存在，直接报 `SDR_CONFIGERR`，不继续查找低优先级路径。
+
+`config.toml` 查找优先级（从高到低）：
+
+| 优先级 | 方式 | 说明 |
+|--------|------|------|
+| 1 | 环境变量 `OSR_HSM_CONFIG` | 指定配置文件绝对路径 |
+| 2 | `/etc/osr/config.toml` | 系统固定路径 |
+| 3 | 当前工作目录 `config.toml` | 启动进程时 shell 的 `pwd` |
+
+> 若 `OSR_HSM_CONFIG` 已设置但文件不存在，直接报 `SDR_CONFIGERR`，不继续查找低优先级路径。
 
 **`mock_keys.toml`**（可选，提供预置密钥）
 ```toml
@@ -64,7 +83,7 @@ private_key = "3945208F7B2144B13F36E38AC6D39F95889393692860B51A42FB81EF4DF7C5B8"
 public_key  = "04BB34D0B28F49ABAFAD1AEE5E44B489B730B8B2A2CB6CC068C8B9DABE7C1F0D0..."
 ```
 
-密钥文件搜索顺序：`SDF_MOCK_CONFIG_DIR` 环境变量 → 可执行文件目录 → 当前工作目录。
+密钥文件（`mock_keys.toml`）搜索顺序：`SDF_MOCK_CONFIG_DIR` 环境变量 → 当前工作目录。
 
 ### 3. C 程序集成
 

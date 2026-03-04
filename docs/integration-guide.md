@@ -17,7 +17,7 @@
 
 ### 1.2 config.toml 最小配置
 
-把下面内容保存为 `config.toml`，放在**可执行文件同目录**（或当前工作目录）：
+把下面内容保存为 `config.toml`，放置位置见 [1.3 config.toml 查找路径](#13-configtoml-查找路径)：
 
 ```toml
 [log]
@@ -25,7 +25,43 @@ level = "warn"       # 日志级别：error / warn / info / debug
 directory = "./"     # 日志文件输出目录
 ```
 
-### 1.3 三行编译命令（Linux）
+### 1.3 config.toml 查找路径
+
+`SDF_OpenDevice` 启动时按以下优先级查找配置文件（找到即停止）：
+
+| 优先级 | 方式 | 路径/说明 |
+|--------|------|----------|
+| 1（最高） | 环境变量 `OSR_HSM_CONFIG` | 指定配置文件的**绝对路径**，适合容器/服务部署 |
+| 2 | 固定系统路径 | `/etc/osr/config.toml` |
+| 3（最低） | 当前工作目录 | 启动进程时 shell 的 CWD 下的 `config.toml` |
+
+> **关于"当前工作目录"**：指启动进程时 shell 所在的目录（`pwd`），
+> **不是** `.so` 文件所在目录，也不是可执行文件所在目录。
+>
+> 例如：在 `/opt/myapp/` 目录下执行 `java -jar app.jar`，
+> 则工作目录为 `/opt/myapp/`，库会查找 `/opt/myapp/config.toml`。
+
+> **关于环境变量行为**：若 `OSR_HSM_CONFIG` 已设置但文件不存在，
+> 库**不会**继续查找低优先级路径，直接返回 `SDR_CONFIGERR`。
+> 这样可以避免配置路径写错时静默使用了错误配置。
+
+**推荐配置方式（按场景）：**
+
+```bash
+# 场景 A：服务器/容器部署，统一指定路径
+export OSR_HSM_CONFIG=/etc/myapp/sdf_config.toml
+
+# 场景 B：使用系统默认路径（需 root 权限创建目录）
+sudo mkdir -p /etc/osr
+sudo cp config.toml /etc/osr/config.toml
+
+# 场景 C：本地开发调试，在工作目录放置 config.toml（无需额外设置）
+cd /path/to/myproject
+cp /path/to/config.toml .
+./my_app
+```
+
+### 1.4 三行编译命令（Linux）
 
 ```bash
 # 编译你的程序，链接 libsdf_mock.so
@@ -175,11 +211,16 @@ value = "FEDCBA9876543210FEDCBA9876543210"  # 16字节 SM4 密钥，十六进制
 
 **Q：运行时报 `SDR_CONFIGERR`，怎么处理？**
 
-`SDF_OpenDevice` 启动时会在两个位置查找 `config.toml`：
-1. 可执行文件所在目录
-2. 当前工作目录（`pwd`）
+`SDF_OpenDevice` 按以下顺序查找 `config.toml`，找到即使用：
 
-确保 `config.toml` 存在于其中任意一个位置即可。
+1. 环境变量 `OSR_HSM_CONFIG` 指定的绝对路径
+2. 固定路径 `/etc/osr/config.toml`
+3. 当前工作目录（`pwd`）下的 `config.toml`
+
+排查步骤：
+- 若设置了 `OSR_HSM_CONFIG`，确认路径文件实际存在（路径写错时库不会降级查找）
+- 若使用系统路径，确认 `/etc/osr/config.toml` 存在且可读
+- 若本地调试，在启动程序的目录下放置 `config.toml`
 
 ---
 
