@@ -75,11 +75,15 @@ impl SessionContext {
 pub struct DeviceContext {
     pub mock_cfg: MockConfig,
     pub sessions: HashMap<u32, SessionContext>,
+    /// Reason: 引用计数——记录 SDF_OpenDevice 被调用的次数，
+    /// 只有减到0时 SDF_CloseDevice 才真正销毁上下文，
+    /// 避免 test_interface_list 内部 Close 破坏外层调用方的会话
+    pub open_count: u32,
 }
 
 impl DeviceContext {
     pub fn new(mock_cfg: MockConfig) -> Self {
-        Self { mock_cfg, sessions: HashMap::new() }
+        Self { mock_cfg, sessions: HashMap::new(), open_count: 1 }
     }
 
     /// 创建新会话，返回会话句柄

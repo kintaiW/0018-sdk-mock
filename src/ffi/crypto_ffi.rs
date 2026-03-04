@@ -4,9 +4,38 @@ use crate::error_code::SDR_PARAMERR;
 use crate::types::{ECCrefPublicKey, ECCrefPrivateKey, ECCCipher, ECCSignature};
 use crate::sdf_impl::{
     asymmetric::*,
-    symmetric::*,
+    symmetric::{sdf_encrypt, sdf_decrypt, sdf_calculate_mac, sdf_auth_enc, sdf_auth_dec},
     hash::*,
 };
+
+// ──────────────── ECCCipher 柔性数组适配辅助函数 ────────────────
+// Reason: C 侧标准 ECCCipher.C 是柔性数组（大小=1），Rust 侧 ECCCipher.C 是 C[136]。
+// 两者 sizeof 不同（C=168, Rust=300），不能整体 memcpy/deref 赋值，
+// 必须逐字段操作，否则写出时会栈溢出，读入时读到垃圾数据。
+
+/// 将 Rust ECCCipher 逐字段写入 C 侧指针（安全写出 L 字节的 C 数据）
+pub(crate) unsafe fn ecc_cipher_write_to_c(src: &ECCCipher, dst: *mut ECCCipher) {
+    std::ptr::copy_nonoverlapping(src.x.as_ptr(), (*dst).x.as_mut_ptr(), 64);
+    std::ptr::copy_nonoverlapping(src.y.as_ptr(), (*dst).y.as_mut_ptr(), 64);
+    std::ptr::copy_nonoverlapping(src.M.as_ptr(), (*dst).M.as_mut_ptr(), 32);
+    (*dst).L = src.L;
+    // 写 C 字段：C 紧跟在 L 之后，通过指针算术寻址（绕过柔性数组大小限制）
+    let c_ptr = (dst as *mut u8).add(std::mem::offset_of!(ECCCipher, C));
+    std::ptr::copy_nonoverlapping(src.C.as_ptr(), c_ptr, src.L as usize);
+}
+
+/// 从 C 侧指针读入 ECCCipher 到 Rust 结构（安全读入 L 字节的 C 数据）
+pub(crate) unsafe fn ecc_cipher_read_from_c(src: *const ECCCipher) -> ECCCipher {
+    let mut dst = ECCCipher::default();
+    std::ptr::copy_nonoverlapping((*src).x.as_ptr(), dst.x.as_mut_ptr(), 64);
+    std::ptr::copy_nonoverlapping((*src).y.as_ptr(), dst.y.as_mut_ptr(), 64);
+    std::ptr::copy_nonoverlapping((*src).M.as_ptr(), dst.M.as_mut_ptr(), 32);
+    dst.L = (*src).L;
+    let c_len = (dst.L as usize).min(136);
+    let c_ptr = (src as *const u8).add(std::mem::offset_of!(ECCCipher, C));
+    std::ptr::copy_nonoverlapping(c_ptr, dst.C.as_mut_ptr(), c_len);
+    dst
+}
 
 // ──────────────── 非对称运算 ────────────────
 
@@ -95,9 +124,16 @@ pub extern "C" fn SDF_ExternalEncrypt_ECC(
     }
     let handle = hSessionHandle as usize as u32;
     let data = unsafe { std::slice::from_raw_parts(pucData, uiDataLength as usize) };
-    unsafe {
-        sdf_external_encrypt_ecc(handle, uiAlgID, &*pucPublicKey, data, &mut *pucEncData)
+    // Reason: C 侧 ECCCipher.C 是柔性数组（C[1]），大小与 Rust ECCCipher.C[136] 不同，
+    // 不能整体赋值，必须逐字段写入，避免栈溢出
+    let mut cipher = ECCCipher::default();
+    let ret = unsafe {
+        sdf_external_encrypt_ecc(handle, uiAlgID, &*pucPublicKey, data, &mut cipher)
+    };
+    if ret == 0 {
+        unsafe { ecc_cipher_write_to_c(&cipher, pucEncData); }
     }
+    ret
 }
 
 /// SDF_ExternalDecrypt_ECC
@@ -114,9 +150,11 @@ pub extern "C" fn SDF_ExternalDecrypt_ECC(
         return SDR_PARAMERR;
     }
     let handle = hSessionHandle as usize as u32;
+    // Reason: 从 C 侧柔性数组安全读入 ECCCipher，不做整体 deref
+    let cipher = unsafe { ecc_cipher_read_from_c(pucEncData) };
     let mut plaintext = Vec::new();
     let ret = unsafe {
-        sdf_external_decrypt_ecc(handle, uiAlgID, &*pucPrivateKey, &*pucEncData, &mut plaintext)
+        sdf_external_decrypt_ecc(handle, uiAlgID, &*pucPrivateKey, &cipher, &mut plaintext)
     };
     if ret == 0 {
         unsafe {
@@ -224,6 +262,108 @@ pub extern "C" fn SDF_CalculateMAC(
         unsafe {
             std::ptr::copy_nonoverlapping(mac.as_ptr(), pucMAC, 16);
             *puiMACLength = 16;
+        }
+    }
+    ret
+}
+
+/// SDF_AuthEnc — 可鉴别加密（SM4-GCM）
+/// 签名与 sdfc 标准一致：
+///   pucStartVar/uiStartVarLength: nonce（可变长，GCM 使用12字节，超出截取）
+///   pucAuthData/*puiAuthDataLength: tag 输出（固定16字节，通过长度指针返回）
+#[no_mangle]
+pub extern "C" fn SDF_AuthEnc(
+    hSessionHandle: *mut c_void,
+    hKeyHandle: *mut c_void,
+    uiAlgID: c_uint,
+    pucStartVar: *const c_uchar,
+    uiStartVarLength: c_uint,
+    pucAAD: *const c_uchar,
+    uiAADLength: c_uint,
+    pucData: *const c_uchar,
+    uiDataLength: c_uint,
+    pucEncData: *mut c_uchar,
+    puiEncDataLength: *mut c_uint,
+    pucAuthData: *mut c_uchar,
+    puiAuthDataLength: *mut c_uint,
+) -> c_int {
+    if pucStartVar.is_null() || pucData.is_null() || pucEncData.is_null()
+        || puiEncDataLength.is_null() || pucAuthData.is_null() || puiAuthDataLength.is_null()
+    {
+        return SDR_PARAMERR;
+    }
+    let session = hSessionHandle as usize as u32;
+    let key = hKeyHandle as usize as u32;
+    // Reason: GCM 标准 nonce 为 12 字节；若调用方传入不足12字节则补零，超出则截取
+    let nonce_len = (uiStartVarLength as usize).min(12);
+    let mut nonce = [0u8; 12];
+    unsafe { std::ptr::copy_nonoverlapping(pucStartVar, nonce.as_mut_ptr(), nonce_len); }
+    let aad: &[u8] = if pucAAD.is_null() || uiAADLength == 0 {
+        &[]
+    } else {
+        unsafe { std::slice::from_raw_parts(pucAAD, uiAADLength as usize) }
+    };
+    let data = unsafe { std::slice::from_raw_parts(pucData, uiDataLength as usize) };
+    let mut ct = Vec::new();
+    let mut tag = [0u8; 16];
+    let ret = sdf_auth_enc(session, key, uiAlgID, &nonce, aad, data, &mut ct, &mut tag);
+    if ret == 0 {
+        unsafe {
+            std::ptr::copy_nonoverlapping(ct.as_ptr(), pucEncData, ct.len());
+            *puiEncDataLength = ct.len() as c_uint;
+            std::ptr::copy_nonoverlapping(tag.as_ptr(), pucAuthData, 16);
+            *puiAuthDataLength = 16;
+        }
+    }
+    ret
+}
+
+/// SDF_AuthDec — 可鉴别解密（SM4-GCM）
+/// 签名与 sdfc 标准一致：
+///   pucAuthData/puiAuthDataLength: tag（值传递，非指针）
+///   pucEncData/puiEncDataLength:   密文（值传递，非指针）
+#[no_mangle]
+pub extern "C" fn SDF_AuthDec(
+    hSessionHandle: *mut c_void,
+    hKeyHandle: *mut c_void,
+    uiAlgID: c_uint,
+    pucStartVar: *const c_uchar,
+    uiStartVarLength: c_uint,
+    pucAAD: *const c_uchar,
+    uiAADLength: c_uint,
+    pucAuthData: *const c_uchar,
+    uiAuthDataLength: c_uint,
+    pucEncData: *const c_uchar,
+    uiEncDataLength: c_uint,
+    pucData: *mut c_uchar,
+    puiDataLength: *mut c_uint,
+) -> c_int {
+    if pucStartVar.is_null() || pucEncData.is_null() || pucAuthData.is_null()
+        || pucData.is_null() || puiDataLength.is_null()
+    {
+        return SDR_PARAMERR;
+    }
+    let session = hSessionHandle as usize as u32;
+    let key = hKeyHandle as usize as u32;
+    let nonce_len = (uiStartVarLength as usize).min(12);
+    let mut nonce = [0u8; 12];
+    unsafe { std::ptr::copy_nonoverlapping(pucStartVar, nonce.as_mut_ptr(), nonce_len); }
+    let aad: &[u8] = if pucAAD.is_null() || uiAADLength == 0 {
+        &[]
+    } else {
+        unsafe { std::slice::from_raw_parts(pucAAD, uiAADLength as usize) }
+    };
+    let ct = unsafe { std::slice::from_raw_parts(pucEncData, uiEncDataLength as usize) };
+    // Reason: tag 长度由调用方传入，GCM 期望16字节；不足则补零，超出截取
+    let tag_len = (uiAuthDataLength as usize).min(16);
+    let mut tag = [0u8; 16];
+    unsafe { std::ptr::copy_nonoverlapping(pucAuthData, tag.as_mut_ptr(), tag_len); }
+    let mut pt = Vec::new();
+    let ret = sdf_auth_dec(session, key, uiAlgID, &nonce, aad, ct, &tag, &mut pt);
+    if ret == 0 {
+        unsafe {
+            std::ptr::copy_nonoverlapping(pt.as_ptr(), pucData, pt.len());
+            *puiDataLength = pt.len() as c_uint;
         }
     }
     ret

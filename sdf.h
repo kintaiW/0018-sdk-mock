@@ -67,13 +67,15 @@ extern "C" {
 #define SGD_SM4_OFB  0x00000408
 #define SGD_SM4_MAC  0x00000410
 #define SGD_SM4_CTR  0x00000420
-#define SGD_SM4_GCM  0x00000440
-#define SGD_SM4_CCM  0x00000480
+#define SGD_SM4_GCM  0x00000480  /* SM4-GCM（与 sdfc 标准一致）*/
+/* 注：0x00000440 为 XTS，本 Mock 不支持 XTS */
 
 /* SM2 非对称算法 */
+#define SGD_SM2      0x00020100  /* SM2 通用标识（sdfc 标准，sign/verify/keygen 均用此值）*/
 #define SGD_SM2_1    0x00020200  /* SM2 签名       */
 #define SGD_SM2_2    0x00020400  /* SM2 密钥交换   */
 #define SGD_SM2_3    0x00020800  /* SM2 加密       */
+#define SGD_SM3_SM2  0x00020201  /* SM3 哈希 + SM2 签名（输入为已完成 SM3 的摘要） */
 
 /* 哈希算法 */
 #define SGD_SM3      0x00000001
@@ -128,6 +130,28 @@ typedef struct {
     uint8_t r[64];
     uint8_t s[64];
 } ECCSignature;
+
+/** RSA 公钥（GM/T 0018 §6.2.2.3）
+ *  Mock 实现不支持 RSA，此结构体仅作声明占位 */
+#define RSA_MAX_BITS 2048
+#define RSA_MAX_LEN  (RSA_MAX_BITS / 8)
+typedef struct {
+    uint32_t bits;              /* 密钥长度（位）  */
+    uint8_t  m[RSA_MAX_LEN];   /* 模数            */
+    uint8_t  e[RSA_MAX_LEN];   /* 公开指数        */
+} RSArefPublicKey;
+
+/** RSA 私钥（GM/T 0018 §6.2.2.3）
+ *  Mock 实现不支持 RSA，此结构体仅作声明占位 */
+typedef struct {
+    uint32_t bits;              /* 密钥长度（位）  */
+    uint8_t  m[RSA_MAX_LEN];   /* 模数            */
+    uint8_t  e[RSA_MAX_LEN];   /* 公开指数        */
+    uint8_t  d[RSA_MAX_LEN];   /* 私有指数        */
+    uint8_t  prime[2][RSA_MAX_LEN / 2]; /* p, q   */
+    uint8_t  pexp[2][RSA_MAX_LEN / 2];  /* dp, dq */
+    uint8_t  coef[RSA_MAX_LEN / 2];     /* qInv   */
+} RSArefPrivateKey;
 
 /* ============================================================
  *  设备管理接口（GM/T 0018 §6.3）
@@ -220,6 +244,38 @@ SDF_API int SDF_GenerateKeyPair_ECC(void *hSessionHandle, unsigned int uiAlgID,
                                     unsigned int uiKeyBits,
                                     ECCrefPublicKey *pucPublicKey,
                                     ECCrefPrivateKey *pucPrivateKey);
+
+/**
+ * SDF_ExportSignPublicKey_RSA — 导出内部 RSA 签名公钥
+ * @note Mock 实现不支持 RSA，返回 SDR_NOTSUPPORT
+ */
+SDF_API int SDF_ExportSignPublicKey_RSA(void *hSessionHandle, unsigned int uiKeyIndex,
+                                        RSArefPublicKey *pucPublicKey);
+
+/**
+ * SDF_ExportEncPublicKey_RSA — 导出内部 RSA 加密公钥
+ * @note Mock 实现不支持 RSA，返回 SDR_NOTSUPPORT
+ */
+SDF_API int SDF_ExportEncPublicKey_RSA(void *hSessionHandle, unsigned int uiKeyIndex,
+                                       RSArefPublicKey *pucPublicKey);
+
+/**
+ * SDF_GenerateKeyPair_RSA — 生成 RSA 密钥对
+ * @note Mock 实现不支持 RSA，返回 SDR_NOTSUPPORT
+ */
+SDF_API int SDF_GenerateKeyPair_RSA(void *hSessionHandle, unsigned int uiBits,
+                                    RSArefPublicKey *pucPublicKey,
+                                    RSArefPrivateKey *pucPrivateKey);
+
+/**
+ * SDF_ImportKey — 明文导入会话密钥
+ * @param pucKey      [in]  明文密钥数据（SM4 需 16 字节）
+ * @param uiKeyLength [in]  密钥长度（字节）
+ * @param phKeyHandle [out] 会话密钥句柄
+ */
+SDF_API int SDF_ImportKey(void *hSessionHandle,
+                          const unsigned char *pucKey, unsigned int uiKeyLength,
+                          void **phKeyHandle);
 
 /**
  * SDF_GenerateKeyWithKEK — 生成会话密钥并用 KEK 加密保护
@@ -382,6 +438,44 @@ SDF_API int SDF_CalculateMAC(void *hSessionHandle, void *hKeyHandle, unsigned in
                               const unsigned char *pucData, unsigned int uiDataLength,
                               unsigned char *pucMAC, unsigned int *puiMACLength);
 
+/**
+ * SDF_AuthEnc — 单包可鉴别加密（SM4-GCM / SM4-CCM）
+ * @param uiAlgID          [in]  算法标识（SGD_SM4_GCM 或 SGD_SM4_CCM）
+ * @param pucNonce         [in]  12 字节随机数
+ * @param pucAAD           [in]  附加认证数据（可为 NULL）
+ * @param uiAADLength      [in]  附加认证数据长度
+ * @param pucData          [in]  明文
+ * @param uiDataLength     [in]  明文长度
+ * @param pucEncData       [out] 密文（与明文等长）
+ * @param puiEncDataLength [out] 密文长度
+ * @param pucTag           [out] 16 字节认证标签
+ */
+SDF_API int SDF_AuthEnc(void *hSessionHandle, void *hKeyHandle, unsigned int uiAlgID,
+                         const unsigned char *pucStartVar, unsigned int uiStartVarLength,
+                         const unsigned char *pucAAD, unsigned int uiAADLength,
+                         const unsigned char *pucData, unsigned int uiDataLength,
+                         unsigned char *pucEncData, unsigned int *puiEncDataLength,
+                         unsigned char *pucAuthData, unsigned int *puiAuthDataLength);
+
+/**
+ * SDF_AuthDec — 单包可鉴别解密（SM4-GCM / SM4-CCM）
+ * @param uiAlgID          [in]  算法标识（SGD_SM4_GCM 或 SGD_SM4_CCM）
+ * @param pucNonce         [in]  12 字节随机数（与加密时一致）
+ * @param pucAAD           [in]  附加认证数据（可为 NULL）
+ * @param uiAADLength      [in]  附加认证数据长度
+ * @param pucEncData       [in]  密文
+ * @param uiEncDataLength  [in]  密文长度
+ * @param pucTag           [in]  16 字节认证标签
+ * @param pucData          [out] 明文
+ * @param puiDataLength    [out] 明文长度
+ */
+SDF_API int SDF_AuthDec(void *hSessionHandle, void *hKeyHandle, unsigned int uiAlgID,
+                         const unsigned char *pucStartVar, unsigned int uiStartVarLength,
+                         const unsigned char *pucAAD, unsigned int uiAADLength,
+                         const unsigned char *pucAuthData, unsigned int uiAuthDataLength,
+                         const unsigned char *pucEncData, unsigned int uiEncDataLength,
+                         unsigned char *pucData, unsigned int *puiDataLength);
+
 /* ============================================================
  *  哈希运算接口（GM/T 0018 §6.7）
  * ============================================================ */
@@ -432,8 +526,59 @@ SDF_API int SDF_HMACUpdate(void *hSessionHandle,
 SDF_API int SDF_HMACFinal(void *hSessionHandle,
                            unsigned char *pucMAC, unsigned int *puiMACLength);
 
+/* ============================================================
+ *  文件管理接口（GM/T 0018 §6.6）
+ *  Mock 实现不支持文件操作，全部返回 SDR_NOTSUPPORT
+ * ============================================================ */
+
+/**
+ * SDF_CreateFile — 在设备中创建文件
+ * @param pucFileName [in] 文件名
+ * @param uiNameLen   [in] 文件名长度
+ * @param uiFileSize  [in] 文件大小（字节）
+ * @note Mock 返回 SDR_NOTSUPPORT
+ */
+SDF_API int SDF_CreateFile(void *hSessionHandle,
+                            const unsigned char *pucFileName, unsigned int uiNameLen,
+                            unsigned int uiFileSize);
+
+/**
+ * SDF_WriteFile — 向设备文件写入数据
+ * @param pucFileName    [in] 文件名
+ * @param uiOffset       [in] 写入偏移（字节）
+ * @param pucBuffer      [in] 写入数据
+ * @param uiWriteLength  [in] 写入长度
+ * @note Mock 返回 SDR_NOTSUPPORT
+ */
+SDF_API int SDF_WriteFile(void *hSessionHandle,
+                           const unsigned char *pucFileName, unsigned int uiNameLen,
+                           unsigned int uiOffset,
+                           const unsigned char *pucBuffer, unsigned int uiWriteLength);
+
+/**
+ * SDF_ReadFile — 从设备文件读取数据
+ * @param pucFileName    [in]      文件名
+ * @param uiOffset       [in]      读取偏移（字节）
+ * @param puiReadLength  [in/out]  请求读取长度 / 实际读取长度
+ * @param pucBuffer      [out]     数据缓冲区
+ * @note Mock 返回 SDR_NOTSUPPORT
+ */
+SDF_API int SDF_ReadFile(void *hSessionHandle,
+                          const unsigned char *pucFileName, unsigned int uiNameLen,
+                          unsigned int uiOffset,
+                          unsigned int *puiReadLength, unsigned char *pucBuffer);
+
+/**
+ * SDF_DeleteFile — 删除设备文件
+ * @param pucFileName [in] 文件名
+ * @note Mock 返回 SDR_NOTSUPPORT
+ */
+SDF_API int SDF_DeleteFile(void *hSessionHandle,
+                            const unsigned char *pucFileName, unsigned int uiNameLen);
+
 #ifdef __cplusplus
 }
 #endif
 
 #endif /* SDF_H */
+

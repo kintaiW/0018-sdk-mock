@@ -63,8 +63,10 @@ pub fn sdf_open_device() -> i32 {
         Ok(g) => g,
         Err(_) => return SDR_UNKNOWERR,
     };
-    if guard.is_some() {
-        log::warn!("SDF_OpenDevice: 设备已打开，忽略重复调用");
+    if let Some(ctx) = guard.as_mut() {
+        // Reason: 引用计数+1，支持 test_interface_list 内部嵌套 OpenDevice 而不破坏外层上下文
+        ctx.open_count += 1;
+        log::warn!("SDF_OpenDevice: 设备已打开，引用计数+1 = {}", ctx.open_count);
         return SDR_OK;
     }
     *guard = Some(DeviceContext::new(mock_cfg));
@@ -72,16 +74,28 @@ pub fn sdf_open_device() -> i32 {
     SDR_OK
 }
 
-/// SDF_CloseDevice — 关闭设备
+/// SDF_CloseDevice — 关闭设备（引用计数，归零时才真正销毁）
+/// Reason: test_interface_list 内部会多次调用 OpenDevice/CloseDevice，
+/// 若直接销毁会破坏外层调用方持有的 hSessionHandle；
+/// 用引用计数保证只有所有 OpenDevice 都配对了 CloseDevice 后才真正销毁
 pub fn sdf_close_device() -> i32 {
     log::info!("SDF_CloseDevice");
     let mut guard = match device_lock().lock() {
         Ok(g) => g,
         Err(_) => return SDR_UNKNOWERR,
     };
-    if guard.is_none() {
-        log::warn!("SDF_CloseDevice: 设备未打开");
-        return SDR_OPENDEVICE;
+    let ctx = match guard.as_mut() {
+        Some(c) => c,
+        None => {
+            log::warn!("SDF_CloseDevice: 设备未打开");
+            return SDR_OPENDEVICE;
+        }
+    };
+    // Reason: 引用计数-1；只有计数归零时才真正销毁设备上下文
+    ctx.open_count = ctx.open_count.saturating_sub(1);
+    if ctx.open_count > 0 {
+        log::warn!("SDF_CloseDevice: 引用计数-1 = {}，设备继续保持打开", ctx.open_count);
+        return SDR_OK;
     }
     *guard = None;
     SDR_OK

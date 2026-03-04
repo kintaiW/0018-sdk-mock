@@ -8,7 +8,7 @@ name = "sdf_mock"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-gm-sdk-rs = { git = "ssh://git@github.com/kintaiW/gm-sdk-rs.git" }
+gm-sdk-rs = { git = "https://github.com/kintaiW/gm-sdk-rs.git", branch = "main" }
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }
 log = "0.4"

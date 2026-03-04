@@ -9,6 +9,37 @@ use crate::crypto::sm2_ops::{
     sm2_enc, sm2_dec,
 };
 
+// ──────────────── RSA Stub（Mock 不支持 RSA）────────────────
+
+/// SDF_ExportSignPublicKey_RSA — Mock 不支持 RSA，直接返回 SDR_NOTSUPPORT
+pub fn sdf_export_sign_public_key_rsa(
+    _session_handle: u32,
+    _key_index: u32,
+) -> i32 {
+    log::warn!("SDF_ExportSignPublicKey_RSA: RSA 不支持");
+    SDR_NOTSUPPORT
+}
+
+/// SDF_ExportEncPublicKey_RSA — Mock 不支持 RSA，直接返回 SDR_NOTSUPPORT
+pub fn sdf_export_enc_public_key_rsa(
+    _session_handle: u32,
+    _key_index: u32,
+) -> i32 {
+    log::warn!("SDF_ExportEncPublicKey_RSA: RSA 不支持");
+    SDR_NOTSUPPORT
+}
+
+/// SDF_GenerateKeyPair_RSA — Mock 不支持 RSA，直接返回 SDR_NOTSUPPORT
+pub fn sdf_generate_key_pair_rsa(
+    _session_handle: u32,
+    _bits: u32,
+) -> i32 {
+    log::warn!("SDF_GenerateKeyPair_RSA: RSA 不支持");
+    SDR_NOTSUPPORT
+}
+
+// ──────────────── 设备/会话密钥管理 ────────────────
+
 /// SDF_GenerateRandom — 生成随机数
 pub fn sdf_generate_random(session_handle: u32, length: u32, random: &mut Vec<u8>) -> i32 {
     if length == 0 || length > 4096 {
@@ -108,6 +139,28 @@ pub fn sdf_generate_key_pair_ecc(
         pri_key.bits = 256;
         pri_key.K[32..64].copy_from_slice(&pri);
         log::debug!("SDF_GenerateKeyPair_ECC: 生成完毕");
+        SDR_OK
+    })
+}
+
+/// SDF_ImportKey — 明文导入会话密钥
+/// key_data: 明文密钥数据（SM4 需16字节）
+pub fn sdf_import_key(
+    session_handle: u32,
+    key_data: &[u8],
+    key_handle: &mut u32,
+) -> i32 {
+    if key_data.len() != 16 {
+        return SDR_PARAMERR;
+    }
+    with_session(session_handle, |res| {
+        let session = match res { Ok(s) => s, Err(e) => return e };
+        let handle = session.key_store.store_session_key(
+            KeyType::Symmetric,
+            KeyData::Symmetric(key_data.to_vec()),
+        );
+        *key_handle = handle;
+        log::debug!("SDF_ImportKey: handle=0x{:08X}", handle);
         SDR_OK
     })
 }

@@ -133,12 +133,15 @@ pub mod alg_id {
     pub const SGD_SM4_OFB: u32 = 0x00000408;
     pub const SGD_SM4_MAC: u32 = 0x00000410;
     pub const SGD_SM4_CTR: u32 = 0x00000420;
-    pub const SGD_SM4_GCM: u32 = 0x00000440;
-    pub const SGD_SM4_CCM: u32 = 0x00000480;
+    // Reason: sdfc 标准 SGD_SM4_GCM = 0x00000480，0x00000440 为 XTS（本 Mock 不支持）
+    pub const SGD_SM4_GCM: u32 = 0x00000480;
+    pub const SGD_SM4_CCM: u32 = 0x00000440; // XTS 位置，保留常量避免编译错误
 
     pub const SGD_SM2_1: u32 = 0x00020200; // SM2 签名
     pub const SGD_SM2_2: u32 = 0x00020400; // SM2 密钥交换
     pub const SGD_SM2_3: u32 = 0x00020800; // SM2 加密
+    // Reason: sdfc 用 SGD_SM2=0x00020100 统一表示 SM2 椭圆曲线算法（sign/verify/keygen均用此值）
+    pub const SGD_SM2: u32 = 0x00020100;   // SM2 通用标识（等同签名算法）
 
     pub const SGD_SM3: u32 = 0x00000001;  // SM3 哈希
     pub const SGD_SHA1: u32 = 0x00000002;
