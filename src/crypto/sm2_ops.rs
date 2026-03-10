@@ -1,21 +1,25 @@
 // SM2 算法封装
-// 对 gm-sdk-rs 的 SM2 接口进行薄封装，适配 GM/T 0018 的数据结构格式
+// 对 libsmx 的 SM2 接口进行薄封装，适配 GM/T 0018 的数据结构格式
 
-use gm_sdk::sm2::{
-    sm2_generate_keypair,
-    sm2_sign, sm2_verify,
-    sm2_sign_verify,
-    sm2_get_z, sm2_get_e,
-    sm2_encrypt, sm2_decrypt,
+use libsmx::sm2::{
+    generate_keypair,
+    get_z, get_e,
+    sign, verify,
+    encrypt, decrypt,
+    PrivateKey,
 };
+use rand::rngs::OsRng;
 use crate::types::{ECCrefPublicKey, ECCrefPrivateKey, ECCCipher, ECCSignature};
 
 /// 生成 SM2 密钥对
+/// 返回 (私钥32字节, 公钥65字节 04||x||y)，保持与上层接口兼容
 pub fn sm2_keygen() -> ([u8; 32], [u8; 65]) {
-    sm2_generate_keypair()
+    let mut rng = OsRng;
+    let (pri, pub_key) = generate_keypair(&mut rng);
+    (*pri.as_bytes(), pub_key)
 }
 
-/// gm-sdk-rs 公钥（65字节 04||x||y）→ GM/T 0018 ECCrefPublicKey（x/y 各64字节右对齐）
+/// libsmx 公钥（65字节 04||x||y）→ GM/T 0018 ECCrefPublicKey（x/y 各64字节右对齐）
 pub fn pub_key_to_ecc_ref(pub_key: &[u8; 65]) -> ECCrefPublicKey {
     let mut ecc_pub = ECCrefPublicKey::default();
     ecc_pub.x[32..64].copy_from_slice(&pub_key[1..33]);
@@ -23,7 +27,7 @@ pub fn pub_key_to_ecc_ref(pub_key: &[u8; 65]) -> ECCrefPublicKey {
     ecc_pub
 }
 
-/// GM/T 0018 ECCrefPublicKey → gm-sdk-rs 公钥（65字节 04||x||y）
+/// GM/T 0018 ECCrefPublicKey → libsmx 公钥（65字节 04||x||y）
 pub fn ecc_ref_to_pub_key(ecc_pub: &ECCrefPublicKey) -> [u8; 65] {
     let mut pub_key = [0u8; 65];
     pub_key[0] = 0x04;
@@ -32,36 +36,38 @@ pub fn ecc_ref_to_pub_key(ecc_pub: &ECCrefPublicKey) -> [u8; 65] {
     pub_key
 }
 
-/// gm-sdk-rs 私钥（32字节）→ GM/T 0018 ECCrefPrivateKey（K 字段64字节右对齐）
+/// libsmx 私钥（32字节）→ GM/T 0018 ECCrefPrivateKey（K 字段64字节右对齐）
 pub fn pri_key_to_ecc_ref(pri_key: &[u8; 32]) -> ECCrefPrivateKey {
     let mut ecc_pri = ECCrefPrivateKey::default();
     ecc_pri.K[32..64].copy_from_slice(pri_key);
     ecc_pri
 }
 
-/// GM/T 0018 ECCrefPrivateKey → gm-sdk-rs 私钥（32字节，取 K 字段后32字节）
+/// GM/T 0018 ECCrefPrivateKey → libsmx 私钥（32字节，取 K 字段后32字节）
 pub fn ecc_ref_to_pri_key(ecc_pri: &ECCrefPrivateKey) -> [u8; 32] {
     ecc_pri.K[32..64].try_into().unwrap()
 }
 
 /// SM2 签名（完整 Z 值流程）
-/// 内部使用 sm2_sign（随机 k），再提取 r/s 填入 ECCSignature
+/// 内部使用 get_z + get_e + sign，再提取 r/s 填入 ECCSignature
 pub fn sm2_sign_full(
     pri_key: &[u8; 32],
     pub_key: &[u8; 65],
     data: &[u8],
     id: &[u8],
 ) -> Result<ECCSignature, String> {
-    // 计算 Z = SM3(ENTL||ID||a||b||Gx||Gy||Px||Py)
-    let z = sm2_get_z(id, pub_key);
-    // 计算 e = SM3(Z||M)
-    let e = sm2_get_e(data, &z);
+    let pri = PrivateKey::from_bytes(pri_key)
+        .map_err(|e| format!("私钥无效: {:?}", e))?;
 
-    // sm2_sign 内部直接对消息做 SM3，这里我们需要对 e 值签名
-    // 使用 sm2_sign 对 e 哈希值签名（sm2_sign 内部会再做一次SM3，等效于对e做直接签名）
-    // Reason: gm-sdk-rs 的 sm2_sign 接受原始消息后内部哈希，
-    // 我们把 e 作为"消息"传入以获得对 e 的直接签名
-    let sig_bytes = sm2_sign(pri_key, &e);
+    // 计算 Z = SM3(ENTL||ID||a||b||Gx||Gy||Px||Py)
+    let z = get_z(id, pub_key);
+    // 计算 e = SM3(Z||M)
+    // Reason: libsmx 的 get_e 参数顺序是 (z, msg)，与旧版 gm-sdk-rs 相同
+    let e = get_e(&z, data);
+
+    let mut rng = OsRng;
+    // sign 返回 [u8; 64]（r||s 各32字节）
+    let sig_bytes = sign(&e, &pri, &mut rng);
 
     let mut sig = ECCSignature::default();
     sig.r[32..64].copy_from_slice(&sig_bytes[..32]);
@@ -76,19 +82,25 @@ pub fn sm2_verify_full(
     id: &[u8],
     sig: &ECCSignature,
 ) -> bool {
-    let z = sm2_get_z(id, pub_key);
-    let e = sm2_get_e(data, &z);
+    let z = get_z(id, pub_key);
+    let e = get_e(&z, data);
 
     let mut sig_bytes = [0u8; 64];
     sig_bytes[..32].copy_from_slice(&sig.r[32..64]);
     sig_bytes[32..].copy_from_slice(&sig.s[32..64]);
 
-    sm2_verify(pub_key, &e, &sig_bytes)
+    // verify 返回 Result<(), Error>，转换为 bool
+    verify(&e, pub_key, &sig_bytes).is_ok()
 }
 
 /// SM2 外部密钥签名（直接对数据做 SM3 哈希后签名）
 pub fn sm2_ext_sign(pri_key: &[u8; 32], data: &[u8]) -> ECCSignature {
-    let sig_bytes = sm2_sign(pri_key, data);
+    let pri = PrivateKey::from_bytes(pri_key).expect("私钥无效");
+    // Reason: ext_sign 不走 Z 值流程，直接以 SM3(data) 作为消息摘要 e 签名
+    let e = libsmx::sm3::Sm3Hasher::digest(data);
+    let mut rng = OsRng;
+    let sig_bytes = sign(&e, &pri, &mut rng);
+
     let mut sig = ECCSignature::default();
     sig.r[32..64].copy_from_slice(&sig_bytes[..32]);
     sig.s[32..64].copy_from_slice(&sig_bytes[32..]);
@@ -97,19 +109,22 @@ pub fn sm2_ext_sign(pri_key: &[u8; 32], data: &[u8]) -> ECCSignature {
 
 /// SM2 外部密钥验签
 pub fn sm2_ext_verify(pub_key: &[u8; 65], data: &[u8], sig: &ECCSignature) -> bool {
+    let e = libsmx::sm3::Sm3Hasher::digest(data);
     let mut sig_bytes = [0u8; 64];
     sig_bytes[..32].copy_from_slice(&sig.r[32..64]);
     sig_bytes[32..].copy_from_slice(&sig.s[32..64]);
-    sm2_verify(pub_key, data, &sig_bytes)
+    verify(&e, pub_key, &sig_bytes).is_ok()
 }
 
 /// SM2 公钥加密 → GM/T 0018 ECCCipher
-/// gm-sdk-rs 输出格式：C1(65) || C3(32) || C2(变长)
+/// libsmx 输出格式：C1(65) || C3(32) || C2(变长)，与旧版一致
 pub fn sm2_enc(pub_key: &[u8; 65], plaintext: &[u8]) -> Result<ECCCipher, String> {
     if plaintext.len() > 136 {
         return Err(format!("明文最大136字节，实际{}字节", plaintext.len()));
     }
-    let raw = sm2_encrypt(pub_key, plaintext);
+    let mut rng = OsRng;
+    let raw = encrypt(pub_key, plaintext, &mut rng)
+        .map_err(|e| format!("SM2加密失败: {:?}", e))?;
     if raw.len() < 97 {
         return Err("加密输出长度不足".to_string());
     }
@@ -125,18 +140,19 @@ pub fn sm2_enc(pub_key: &[u8; 65], plaintext: &[u8]) -> Result<ECCCipher, String
 
 /// SM2 私钥解密（输入 GM/T 0018 ECCCipher）
 pub fn sm2_dec(pri_key: &[u8; 32], cipher: &ECCCipher) -> Option<Vec<u8>> {
+    let pri = PrivateKey::from_bytes(pri_key).ok()?;
     let c2_len = cipher.L as usize;
     if c2_len > 136 {
         return None;
     }
-    // 重组为 gm-sdk-rs 格式：C1(65) || C3(32) || C2
+    // 重组为 libsmx 格式：C1(65) || C3(32) || C2
     let mut raw = Vec::with_capacity(65 + 32 + c2_len);
     raw.push(0x04);
     raw.extend_from_slice(&cipher.x[32..64]);
     raw.extend_from_slice(&cipher.y[32..64]);
     raw.extend_from_slice(&cipher.M);
     raw.extend_from_slice(&cipher.C[..c2_len]);
-    sm2_decrypt(pri_key, &raw)
+    decrypt(&pri, &raw).ok()
 }
 
 #[cfg(test)]

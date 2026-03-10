@@ -1,12 +1,12 @@
 // SM4 算法封装
-// 封装 gm-sdk-rs 的 SM4 多种模式，适配 GM/T 0018 SDF 接口
+// 封装 libsmx 的 SM4 多种模式，适配 GM/T 0018 SDF 接口
 
-use gm_sdk::sm4::{
+use libsmx::sm4::{
     sm4_encrypt_ecb, sm4_decrypt_ecb,
     sm4_encrypt_cbc, sm4_decrypt_cbc,
     sm4_encrypt_cfb, sm4_decrypt_cfb,
-    sm4_encrypt_ofb, sm4_decrypt_ofb,
-    sm4_encrypt_ctr, sm4_decrypt_ctr,
+    sm4_crypt_ofb,
+    sm4_crypt_ctr,
     sm4_encrypt_gcm, sm4_decrypt_gcm,
     sm4_encrypt_ccm, sm4_decrypt_ccm,
 };
@@ -24,13 +24,12 @@ pub fn sm4_encrypt(key: &[u8; 16], iv: &[u8; 16], alg: u32, data: &[u8]) -> Resu
             if data.len() % 16 != 0 {
                 return Err(format!("CBC 模式数据长度必须为16的倍数，实际{}字节", data.len()));
             }
-            let mut out = vec![0u8; data.len()];
-            sm4_encrypt_cbc(key, iv, data, &mut out);
-            Ok(out)
+            Ok(sm4_encrypt_cbc(key, iv, data))
         }
         alg_id::SGD_SM4_CFB => Ok(sm4_encrypt_cfb(key, iv, data)),
-        alg_id::SGD_SM4_OFB => Ok(sm4_encrypt_ofb(key, iv, data)),
-        alg_id::SGD_SM4_CTR => Ok(sm4_encrypt_ctr(key, iv, data)),
+        // Reason: OFB/CTR 为自反模式，libsmx 使用同一函数加解密，返回 Vec<u8>
+        alg_id::SGD_SM4_OFB => Ok(sm4_crypt_ofb(key, iv, data)),
+        alg_id::SGD_SM4_CTR => Ok(sm4_crypt_ctr(key, iv, data)),
         _ => Err(format!("不支持的 SM4 算法标识: 0x{:08X}", alg)),
     }
 }
@@ -43,13 +42,11 @@ pub fn sm4_decrypt(key: &[u8; 16], iv: &[u8; 16], alg: u32, data: &[u8]) -> Resu
             if data.len() % 16 != 0 {
                 return Err(format!("CBC 模式数据长度必须为16的倍数，实际{}字节", data.len()));
             }
-            let mut out = vec![0u8; data.len()];
-            sm4_decrypt_cbc(key, iv, data, &mut out);
-            Ok(out)
+            Ok(sm4_decrypt_cbc(key, iv, data))
         }
         alg_id::SGD_SM4_CFB => Ok(sm4_decrypt_cfb(key, iv, data)),
-        alg_id::SGD_SM4_OFB => Ok(sm4_decrypt_ofb(key, iv, data)),
-        alg_id::SGD_SM4_CTR => Ok(sm4_decrypt_ctr(key, iv, data)),
+        alg_id::SGD_SM4_OFB => Ok(sm4_crypt_ofb(key, iv, data)),
+        alg_id::SGD_SM4_CTR => Ok(sm4_crypt_ctr(key, iv, data)),
         _ => Err(format!("不支持的 SM4 算法标识: 0x{:08X}", alg)),
     }
 }
@@ -64,6 +61,7 @@ pub fn sm4_gcm_encrypt(
     aad: &[u8],
     plaintext: &[u8],
 ) -> (Vec<u8>, [u8; 16]) {
+    // Reason: libsmx 参数顺序 (key, nonce, aad, plaintext)，tag 返回 [u8;16]
     sm4_encrypt_gcm(key, nonce, aad, plaintext)
 }
 
@@ -90,7 +88,9 @@ pub fn sm4_ccm_encrypt(
     plaintext: &[u8],
     tag_len: usize,
 ) -> Vec<u8> {
+    // Reason: libsmx 的 sm4_encrypt_ccm 返回 Result，此处 panic 仅在 tag_len 非法时触发
     sm4_encrypt_ccm(key, nonce, aad, plaintext, tag_len)
+        .expect("SM4-CCM 加密参数非法")
 }
 
 /// SM4-CCM AEAD 解密
@@ -111,8 +111,7 @@ pub fn sm4_cbc_mac(key: &[u8; 16], iv: &[u8; 16], data: &[u8]) -> Result<[u8; 16
     if data.is_empty() || data.len() % 16 != 0 {
         return Err(format!("MAC 计算数据长度必须为16的整倍数，实际{}字节", data.len()));
     }
-    let mut out = vec![0u8; data.len()];
-    sm4_encrypt_cbc(key, iv, data, &mut out);
+    let out = sm4_encrypt_cbc(key, iv, data);
     // 取最后16字节作为 MAC
     let mac: [u8; 16] = out[out.len()-16..].try_into().unwrap();
     Ok(mac)
